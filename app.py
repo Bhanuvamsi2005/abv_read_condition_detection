@@ -1,9 +1,8 @@
 import os
 import cv2
 import torch
-import time
 import datetime
-from flask import Flask, render_template, Response, jsonify, send_file, request
+from flask import Flask, render_template, jsonify, send_file, request
 from ultralytics import YOLO
 
 # PDF
@@ -15,12 +14,12 @@ from reportlab.lib.pagesizes import A4
 app = Flask(__name__)
 
 # =============================
-# Load Model (Render Compatible)
+# Load Model
 # =============================
 MODEL_PATH = "model/best.pt"
 
 if not os.path.exists(MODEL_PATH):
-    raise RuntimeError("❌ Model file not found in /model folder")
+    raise RuntimeError("❌ Model file not found in model/best.pt")
 
 print("✅ Loading YOLO model...")
 model = YOLO(MODEL_PATH)
@@ -28,10 +27,9 @@ model = YOLO(MODEL_PATH)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # =============================
-# Global Variables
+# Globals
 # =============================
 stats = {
-    "fps": 0,
     "detections": 0,
     "alarm": False,
     "condition": "GOOD"
@@ -39,7 +37,9 @@ stats = {
 
 road_history = []
 road_name = "Not Specified"
-video_path = None
+
+UPLOAD_PATH = "uploaded_video.mp4"
+OUTPUT_PATH = "processed_video.mp4"
 
 
 # =============================
@@ -53,19 +53,100 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_video():
-    global video_path
+    global stats, road_history
 
     file = request.files['video']
-    video_path = "uploaded_video.mp4"
-    file.save(video_path)
+    file.save(UPLOAD_PATH)
 
-    return jsonify({"status": "Video uploaded successfully"})
+    cap = cv2.VideoCapture(UPLOAD_PATH)
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    fps = cap.get(cv2.CAP_PROP_FPS) or 20
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    out = cv2.VideoWriter(OUTPUT_PATH, fourcc, fps, (width, height))
+
+    print("🚀 Processing video...")
+
+    total_detections = 0
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        results = model(frame, device=device, conf=0.25, verbose=False)
+
+        frame_detections = 0
+        hazard_detected = False
+
+        for result in results:
+            if result.boxes is None:
+                continue
+
+            for box in result.boxes:
+                conf = float(box.conf[0])
+                if conf < 0.25:
+                    continue
+
+                frame_detections += 1
+                hazard_detected = True
+
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                cls = int(box.cls[0])
+                label = model.names[cls]
+
+                cv2.rectangle(frame, (x1, y1), (x2, y2),
+                              (0, 0, 255), 2)
+
+                cv2.putText(frame,
+                            f"{label} {conf:.2f}",
+                            (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6,
+                            (0, 0, 255),
+                            2)
+
+        total_detections += frame_detections
+
+        # Condition Logic
+        if frame_detections == 0:
+            condition = "GOOD"
+        elif frame_detections <= 2:
+            condition = "MODERATE"
+        else:
+            condition = "DANGEROUS"
+
+        stats["detections"] = frame_detections
+        stats["alarm"] = hazard_detected
+        stats["condition"] = condition
+
+        road_history.append({
+            "time": datetime.datetime.now().strftime("%H:%M:%S"),
+            "detections": frame_detections,
+            "condition": condition
+        })
+
+        if len(road_history) > 50:
+            road_history.pop(0)
+
+        out.write(frame)
+
+    cap.release()
+    out.release()
+
+    print("✅ Processing complete")
+
+    return jsonify({
+        "status": "Video processed successfully",
+        "total_detections": total_detections
+    })
 
 
-@app.route('/video')
-def video():
-    return Response(generate_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+@app.route('/download_video')
+def download_video():
+    return send_file(OUTPUT_PATH, as_attachment=True)
 
 
 @app.route('/stats')
@@ -89,29 +170,20 @@ def export_pdf():
     elements = []
     styles = getSampleStyleSheet()
 
-    danger = sum(1 for r in road_history if r["condition"] == "DANGEROUS")
-    moderate = sum(1 for r in road_history if r["condition"] == "MODERATE")
-
-    if danger > 5:
-        overall = "DANGEROUS"
-    elif moderate > 5:
-        overall = "MODERATE"
-    else:
-        overall = "GOOD"
-
     elements.append(Paragraph("Road Hazard Detection Report", styles['Title']))
     elements.append(Spacer(1, 15))
     elements.append(Paragraph(f"Road Name: {road_name}", styles['Normal']))
-    elements.append(Paragraph(f"Overall Condition: {overall}", styles['Normal']))
     elements.append(Paragraph(f"Generated On: {datetime.datetime.now()}", styles['Normal']))
     elements.append(Spacer(1, 20))
 
     data = [["Time", "Detections", "Condition"]]
 
     for record in road_history:
-        data.append([record["time"],
-                     str(record["detections"]),
-                     record["condition"]])
+        data.append([
+            record["time"],
+            str(record["detections"]),
+            record["condition"]
+        ])
 
     table = Table(data)
     table.setStyle(TableStyle([
@@ -123,96 +195,6 @@ def export_pdf():
     doc.build(elements)
 
     return send_file(file_path, as_attachment=True)
-
-
-# =============================
-# Frame Generator
-# =============================
-def generate_frames():
-
-    global video_path
-
-    if video_path is None:
-        return
-
-    cap = cv2.VideoCapture(video_path)
-    prev_time = 0
-
-    while cap.isOpened():
-        success, frame = cap.read()
-        if not success:
-            break
-
-        frame = cv2.resize(frame, (640, 360))
-
-        results = model(frame, device=device, conf=0.45, verbose=False)
-
-        detection_count = 0
-        hazard_detected = False
-
-        for result in results:
-            if result.boxes is None:
-                continue
-
-            for box in result.boxes:
-                conf = float(box.conf[0])
-                if conf < 0.45:
-                    continue
-
-                detection_count += 1
-                hazard_detected = True
-
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                cls = int(box.cls[0])
-                label = model.names[cls]
-
-                cv2.rectangle(frame, (x1, y1), (x2, y2),
-                              (0, 0, 255), 2)
-
-                cv2.putText(frame,
-                            f"{label} {conf:.2f}",
-                            (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.6,
-                            (0, 0, 255),
-                            2)
-
-        if detection_count == 0:
-            condition = "GOOD"
-        elif detection_count <= 2:
-            condition = "MODERATE"
-        else:
-            condition = "DANGEROUS"
-
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-
-        road_history.append({
-            "time": timestamp,
-            "detections": detection_count,
-            "condition": condition
-        })
-
-        if len(road_history) > 50:
-            road_history.pop(0)
-
-        curr_time = time.time()
-        fps = 1 / (curr_time - prev_time) if prev_time else 0
-        prev_time = curr_time
-
-        stats["fps"] = int(fps)
-        stats["detections"] = detection_count
-        stats["alarm"] = hazard_detected
-        stats["condition"] = condition
-
-        ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
-        frame_bytes = buffer.tobytes()
-
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' +
-               frame_bytes +
-               b'\r\n')
-
-    cap.release()
 
 
 if __name__ == "__main__":
