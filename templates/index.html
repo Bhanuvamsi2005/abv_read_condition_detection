@@ -1,75 +1,492 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Road Hazard Detection</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Road Hazard Detection System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        :root {
+            --bg-dark: #1a1a1a;
+            --card-dark: #2d2d2d;
+            --danger: #dc3545;
+            --warning: #ffc107;
+            --success: #28a745;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            padding: 30px;
+            margin: 20px auto;
+        }
+        
+        .status-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .status-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .condition-badge {
+            font-size: 1.5rem;
+            font-weight: bold;
+            padding: 10px 20px;
+            border-radius: 50px;
+            display: inline-block;
+        }
+        
+        .btn-custom {
+            border-radius: 50px;
+            padding: 12px 30px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin: 5px;
+        }
+        
+        .btn-custom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .file-upload {
+            border: 2px dashed #6c757d;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            background: #f8f9fa;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .file-upload:hover {
+            border-color: #007bff;
+            background: #e9ecef;
+        }
+        
+        .file-upload i {
+            font-size: 48px;
+            color: #6c757d;
+        }
+        
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .alert-good {
+            background: linear-gradient(135deg, #28a745, #20c997);
+            color: white;
+        }
+        
+        .alert-moderate {
+            background: linear-gradient(135deg, #ffc107, #fd7e14);
+            color: white;
+        }
+        
+        .alert-dangerous {
+            background: linear-gradient(135deg, #dc3545, #c82333);
+            color: white;
+        }
+        
+        .floating-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+        
+        #alertBanner {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, #dc3545, #c82333);
+            color: white;
+            text-align: center;
+            padding: 15px;
+            font-weight: bold;
+            z-index: 9999;
+            animation: slideDown 0.5s ease;
+        }
+        
+        @keyframes slideDown {
+            from { transform: translateY(-100%); }
+            to { transform: translateY(0); }
+        }
+    </style>
 </head>
-<body class="bg-dark text-white">
+<body>
+    <!-- Alert Banner -->
+    <div id="alertBanner">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        <span id="alertMessage">⚠ HAZARD DETECTED! ⚠</span>
+    </div>
 
-<div class="container mt-5">
+    <div class="container py-5">
+        <div class="glass-card">
+            <h1 class="text-center mb-4" style="color: #333;">
+                <i class="bi bi-shield-fill-check me-2"></i>
+                Road Hazard Detection System
+            </h1>
+            
+            <!-- Upload Section -->
+            <div class="file-upload mb-4" onclick="document.getElementById('videoUpload').click()">
+                <i class="bi bi-cloud-upload mb-3"></i>
+                <h5>Click to upload or drag and drop</h5>
+                <p class="text-muted">Supported formats: MP4, AVI, MOV, MKV (Max 500MB)</p>
+                <input type="file" id="videoUpload" accept="video/*" style="display: none;">
+                <div id="fileName" class="mt-2 text-primary"></div>
+            </div>
+            
+            <!-- Control Buttons -->
+            <div class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <button class="btn btn-primary btn-custom w-100" onclick="uploadVideo()" id="uploadBtn">
+                        <i class="bi bi-play-fill me-2"></i>Process Video
+                    </button>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-success btn-custom w-100" onclick="downloadVideo()" id="downloadBtn">
+                        <i class="bi bi-download me-2"></i>Download Video
+                    </button>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-info btn-custom w-100" onclick="downloadPDF()" id="pdfBtn">
+                        <i class="bi bi-file-pdf me-2"></i>Export Report
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Processing Indicator -->
+            <div id="processingIndicator" style="display: none;" class="text-center mb-4">
+                <div class="loader"></div>
+                <p class="mt-3 text-primary">Processing video... This may take a few moments.</p>
+            </div>
+            
+            <!-- Live Statistics -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="status-card text-center">
+                        <h5 class="text-muted mb-3">Current Detections</h5>
+                        <h2 class="display-4" id="det">0</h2>
+                        <span class="badge bg-secondary mt-2">objects detected</span>
+                    </div>
+                </div>
+                
+                <div class="col-md-6">
+                    <div class="status-card text-center">
+                        <h5 class="text-muted mb-3">Road Condition</h5>
+                        <div id="conditionDisplay">
+                            <span class="condition-badge alert-good" id="status">GOOD</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Statistics Summary -->
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <h5 class="card-title"><i class="bi bi-graph-up me-2"></i>Session Statistics</h5>
+                            <div class="row text-center">
+                                <div class="col-4">
+                                    <h6>Total Frames</h6>
+                                    <p class="h4" id="totalFrames">0</p>
+                                </div>
+                                <div class="col-4">
+                                    <h6>Total Detections</h6>
+                                    <p class="h4" id="totalDetections">0</p>
+                                </div>
+                                <div class="col-4">
+                                    <h6>Processing Time</h6>
+                                    <p class="h4" id="processTime">0s</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Detection History -->
+            <div class="mt-4">
+                <h5><i class="bi bi-clock-history me-2"></i>Recent Detections</h5>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Detections</th>
+                                <th>Condition</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTable">
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No data available</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Floating Action Button -->
+    <button class="btn btn-danger btn-lg rounded-circle floating-btn" onclick="clearHistory()" title="Clear History">
+        <i class="bi bi-trash-fill"></i>
+    </button>
+    
+    <audio id="alarmSound" preload="auto">
+        <source src="{{ url_for('static', filename='alarm.wav') }}" type="audio/wav">
+    </audio>
 
-<h3>Upload Video</h3>
-
-<input type="file" id="videoUpload" class="form-control mb-3">
-<button class="btn btn-warning w-100" onclick="uploadVideo()">Upload & Process</button>
-<button class="btn btn-success w-100 mt-2" onclick="downloadVideo()">Download Processed Video</button>
-<button class="btn btn-primary w-100 mt-2" onclick="downloadPDF()">Export PDF</button>
-
-<hr>
-
-<p>Detections: <span id="det">0</span></p>
-<p>Status: <span id="status">GOOD</span></p>
-
-</div>
-
-<audio id="alarmSound">
-<source src="/static/alarm.wav" type="audio/wav">
-</audio>
-
-<script>
-let alarm=document.getElementById("alarmSound");
-
-function uploadVideo(){
-let file=document.getElementById("videoUpload").files[0];
-let formData=new FormData();
-formData.append("video",file);
-
-fetch('/upload',{
-method:"POST",
-body:formData
-})
-.then(res=>res.json())
-.then(data=>{
-alert("Processing finished\nFrames: "+data.frames+"\nDetections: "+data.detections);
-});
-}
-
-function downloadVideo(){
-window.location.href="/download_video";
-}
-
-function downloadPDF(){
-window.location.href="/export_pdf";
-}
-
-function updateStats(){
-fetch('/stats')
-.then(res=>res.json())
-.then(data=>{
-document.getElementById("det").innerText=data.detections;
-document.getElementById("status").innerText=data.condition;
-
-if(data.alarm){
-alarm.play();
-}else{
-alarm.pause();
-alarm.currentTime=0;
-}
-});
-}
-
-setInterval(updateStats,1000);
-</script>
-
+    <script>
+        // DOM Elements
+        const alarm = document.getElementById("alarmSound");
+        const alertBanner = document.getElementById("alertBanner");
+        const uploadBtn = document.getElementById("uploadBtn");
+        const processingIndicator = document.getElementById("processingIndicator");
+        const videoUpload = document.getElementById("videoUpload");
+        const fileName = document.getElementById("fileName");
+        
+        // State
+        let sessionStats = {
+            frames: 0,
+            detections: 0,
+            startTime: null
+        };
+        
+        // File selection handler
+        videoUpload.addEventListener('change', function(e) {
+            if (this.files && this.files[0]) {
+                fileName.innerHTML = `<i class="bi bi-check-circle-fill text-success me-2"></i>Selected: ${this.files[0].name}`;
+            } else {
+                fileName.innerHTML = '';
+            }
+        });
+        
+        // Upload and process video
+        function uploadVideo() {
+            const file = videoUpload.files[0];
+            
+            if (!file) {
+                showAlert('Please select a video file first', 'warning');
+                return;
+            }
+            
+            if (file.size > 500 * 1024 * 1024) {
+                showAlert('File size exceeds 500MB limit', 'danger');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append("video", file);
+            
+            // UI Updates
+            uploadBtn.disabled = true;
+            processingIndicator.style.display = 'block';
+            sessionStats.startTime = Date.now();
+            
+            fetch('/upload', {
+                method: "POST",
+                body: formData
+            })
+            .then(res => {
+                if (!res.ok) {
+                    throw new Error('Upload failed');
+                }
+                return res.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                sessionStats.frames = data.frames || 0;
+                sessionStats.detections = data.detections || 0;
+                
+                updateSessionStats();
+                
+                showAlert('Video processed successfully!', 'success');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error processing video: ' + error.message, 'danger');
+            })
+            .finally(() => {
+                uploadBtn.disabled = false;
+                processingIndicator.style.display = 'none';
+            });
+        }
+        
+        function downloadVideo() {
+            window.location.href = "/download_video";
+        }
+        
+        function downloadPDF() {
+            window.location.href = "/export_pdf";
+        }
+        
+        function clearHistory() {
+            if (confirm('Clear detection history?')) {
+                fetch('/clear_history', { method: 'POST' })
+                .then(res => res.json())
+                .then(() => {
+                    document.getElementById('historyTable').innerHTML = 
+                        '<tr><td colspan="4" class="text-center text-muted">No data available</td></tr>';
+                    showAlert('History cleared', 'info');
+                });
+            }
+        }
+        
+        function updateStats() {
+            fetch('/stats')
+            .then(res => {
+                if (!res.ok) {
+                    throw new Error('Stats fetch failed');
+                }
+                return res.json();
+            })
+            .then(data => {
+                // Update basic stats
+                document.getElementById("det").innerText = data.detections || 0;
+                
+                // Update condition with styling
+                const statusEl = document.getElementById("status");
+                statusEl.innerText = data.condition || 'GOOD';
+                
+                // Remove existing classes
+                statusEl.className = 'condition-badge';
+                
+                // Add appropriate class
+                if (data.condition === 'GOOD') {
+                    statusEl.classList.add('alert-good');
+                } else if (data.condition === 'MODERATE') {
+                    statusEl.classList.add('alert-moderate');
+                } else if (data.condition === 'DANGEROUS') {
+                    statusEl.classList.add('alert-dangerous');
+                }
+                
+                // Handle alarm
+                if (data.alarm) {
+                    alarm.play().catch(e => console.log('Audio play failed:', e));
+                    alertBanner.style.display = 'block';
+                    
+                    // Auto-hide after 3 seconds
+                    setTimeout(() => {
+                        alertBanner.style.display = 'none';
+                    }, 3000);
+                } else {
+                    alarm.pause();
+                    alarm.currentTime = 0;
+                    alertBanner.style.display = 'none';
+                }
+                
+                // Update history table
+                updateHistoryTable(data);
+                
+                // Update total detections
+                if (data.detections > 0) {
+                    sessionStats.detections += data.detections;
+                }
+                
+                updateSessionStats();
+            })
+            .catch(error => {
+                console.error('Stats error:', error);
+            });
+        }
+        
+        function updateHistoryTable(data) {
+            const historyBody = document.getElementById('historyTable');
+            
+            // Create new row
+            const newRow = document.createElement('tr');
+            const time = new Date().toLocaleTimeString();
+            
+            let badgeClass = 'bg-success';
+            if (data.condition === 'MODERATE') badgeClass = 'bg-warning';
+            if (data.condition === 'DANGEROUS') badgeClass = 'bg-danger';
+            
+            newRow.innerHTML = `
+                <td>${time}</td>
+                <td><span class="badge bg-primary">${data.detections || 0}</span></td>
+                <td><span class="badge ${badgeClass}">${data.condition || 'GOOD'}</span></td>
+                <td>${data.alarm ? '<span class="badge bg-danger">⚠ HAZARD</span>' : '<span class="badge bg-success">✓ SAFE</span>'}</td>
+            `;
+            
+            // Add to top of table
+            const table = historyBody;
+            if (table.children[0] && table.children[0].children[0]?.colSpan === 4) {
+                table.innerHTML = '';
+            }
+            
+            table.insertBefore(newRow, table.firstChild);
+            
+            // Keep only last 10 rows
+            while (table.children.length > 10) {
+                table.removeChild(table.lastChild);
+            }
+        }
+        
+        function updateSessionStats() {
+            document.getElementById('totalFrames').innerText = sessionStats.frames;
+            document.getElementById('totalDetections').innerText = sessionStats.detections;
+            
+            if (sessionStats.startTime) {
+                const elapsed = Math.floor((Date.now() - sessionStats.startTime) / 1000);
+                document.getElementById('processTime').innerText = elapsed + 's';
+            }
+        }
+        
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
+            alertDiv.style.zIndex = '9999';
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.appendChild(alertDiv);
+            
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+        
+        // Initialize
+        setInterval(updateStats, 1000);
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
