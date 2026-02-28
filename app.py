@@ -14,21 +14,27 @@ from reportlab.lib.pagesizes import A4
 app = Flask(__name__)
 
 # =============================
-# Load Model
+# MODEL LOAD (SAFE VERSION)
 # =============================
+
 MODEL_PATH = "model/best.pt"
 
 if not os.path.exists(MODEL_PATH):
-    raise RuntimeError("❌ Model file not found in model/best.pt")
+    raise RuntimeError("❌ model/best.pt not found")
 
-print("✅ Loading YOLO model...")
+print("🔄 Loading YOLO model...")
 model = YOLO(MODEL_PATH)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+model.to(device)
+
+print("✅ Model loaded")
+print("📦 Model classes:", model.names)
 
 # =============================
-# Globals
+# GLOBALS
 # =============================
+
 stats = {
     "detections": 0,
     "alarm": False,
@@ -43,7 +49,7 @@ OUTPUT_PATH = "processed_video.mp4"
 
 
 # =============================
-# Routes
+# ROUTES
 # =============================
 
 @app.route('/')
@@ -53,12 +59,20 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_video():
+
     global stats, road_history
+
+    road_history.clear()
 
     file = request.files['video']
     file.save(UPLOAD_PATH)
 
+    print("📥 Video uploaded")
+
     cap = cv2.VideoCapture(UPLOAD_PATH)
+
+    if not cap.isOpened():
+        return jsonify({"error": "Failed to open video"})
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     fps = cap.get(cv2.CAP_PROP_FPS) or 20
@@ -67,41 +81,48 @@ def upload_video():
 
     out = cv2.VideoWriter(OUTPUT_PATH, fourcc, fps, (width, height))
 
-    print("🚀 Processing video...")
-
+    total_frames = 0
     total_detections = 0
 
-    while cap.isOpened():
+    print("🚀 Processing video...")
+
+    while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        results = model(frame, device=device, conf=0.25, verbose=False)
+        total_frames += 1
+
+        # 🔥 LOWER CONF FOR DEBUG
+        results = model(frame, device=device, conf=0.20, verbose=False)
 
         frame_detections = 0
         hazard_detected = False
 
         for result in results:
+
             if result.boxes is None:
                 continue
 
             for box in result.boxes:
                 conf = float(box.conf[0])
-                if conf < 0.25:
+                cls = int(box.cls[0])
+
+                print("Detected:", model.names[cls], "Conf:", conf)
+
+                if conf < 0.20:
                     continue
 
                 frame_detections += 1
                 hazard_detected = True
 
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
-                cls = int(box.cls[0])
-                label = model.names[cls]
 
                 cv2.rectangle(frame, (x1, y1), (x2, y2),
                               (0, 0, 255), 2)
 
                 cv2.putText(frame,
-                            f"{label} {conf:.2f}",
+                            f"{model.names[cls]} {conf:.2f}",
                             (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX,
                             0.6,
@@ -110,7 +131,7 @@ def upload_video():
 
         total_detections += frame_detections
 
-        # Condition Logic
+        # CONDITION
         if frame_detections == 0:
             condition = "GOOD"
         elif frame_detections <= 2:
@@ -128,24 +149,26 @@ def upload_video():
             "condition": condition
         })
 
-        if len(road_history) > 50:
-            road_history.pop(0)
-
         out.write(frame)
 
     cap.release()
     out.release()
 
-    print("✅ Processing complete")
+    print("✅ Processing finished")
+    print("Total frames:", total_frames)
+    print("Total detections:", total_detections)
 
     return jsonify({
-        "status": "Video processed successfully",
-        "total_detections": total_detections
+        "status": "Processing complete",
+        "frames": total_frames,
+        "detections": total_detections
     })
 
 
 @app.route('/download_video')
 def download_video():
+    if not os.path.exists(OUTPUT_PATH):
+        return "No processed video found"
     return send_file(OUTPUT_PATH, as_attachment=True)
 
 
@@ -154,15 +177,11 @@ def get_stats():
     return jsonify(stats)
 
 
-@app.route('/set_road', methods=['POST'])
-def set_road():
-    global road_name
-    road_name = request.json.get("road_name", "Not Specified")
-    return jsonify({"status": "Road name updated"})
-
-
 @app.route('/export_pdf')
 def export_pdf():
+
+    if len(road_history) == 0:
+        return "No detection data available"
 
     file_path = "road_report.pdf"
     doc = SimpleDocTemplate(file_path, pagesize=A4)
@@ -173,7 +192,6 @@ def export_pdf():
     elements.append(Paragraph("Road Hazard Detection Report", styles['Title']))
     elements.append(Spacer(1, 15))
     elements.append(Paragraph(f"Road Name: {road_name}", styles['Normal']))
-    elements.append(Paragraph(f"Generated On: {datetime.datetime.now()}", styles['Normal']))
     elements.append(Spacer(1, 20))
 
     data = [["Time", "Detections", "Condition"]]
