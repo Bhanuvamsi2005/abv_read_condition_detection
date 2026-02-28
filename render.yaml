@@ -2,8 +2,10 @@ services:
   - type: web
     name: road-hazard-detection
     runtime: python
-    buildCommand: pip install -r requirements.txt
+    region: oregon
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: gunicorn app:app --timeout 300 --workers 1 --threads 2
     envVars:
       - key: PYTHON_VERSION
-        value: 3.9.0
+        value: 3.11.0
